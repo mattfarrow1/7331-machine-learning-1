@@ -1,1 +1,2 @@
 Data/flights.csv filter=lfs diff=lfs merge=lfs -text
+Data/df_clean.csv filter=lfs diff=lfs merge=lfs -text
