@@ -17,10 +17,10 @@ The data is important because it takes airline delays and cancellations, one of 
 
 ### Projects
 
-- Lab 1: Visualization & Data Preprocessing ([Instructions](https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Documentation/Lab%201%20-%20Visualization%20and%20Data%20Preprocessing.pdf), [Jupyter Notebook]()https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Labs/Lab1_Group4.ipynb)
+- Lab 1: Visualization & Data Preprocessing ([Instructions](https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Documentation/Lab%201%20-%20Visualization%20and%20Data%20Preprocessing.pdf), [Jupyter Notebook](https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Labs/Lab1_Group4.ipynb))
 - Mini-Lab: Logistic Regression & SVM ([Instructions](https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Documentation/Mini%20Lab%20-%20Logistic%20Regression%20and%20SVMS.pdf), [Jupyter Notebook](https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Labs/MiniProject_Group4.ipynb))
 - Lab 2: Classification ([Instructions](https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Documentation/Lab%201%20-%20Visualization%20and%20Data%20Preprocessing.pdf), [Jupyter Notebook](https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Labs/Lab2_Group4.ipynb))
-- Lab 3: Clustering, Association Rules, or Recommenders ([Instructions]()https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Documentation/Lab%203%20-%20Clustering%20Association%20Rules%20or%20Recommenders.pdf)
+- Lab 3: Clustering, Association Rules, or Recommenders ([Instructions](https://github.com/mattfarrow1/7331-machine-learning-1/blob/main/Documentation/Lab%203%20-%20Clustering%20Association%20Rules%20or%20Recommenders.pdf))
 
 ### In-Class Assignments
 
