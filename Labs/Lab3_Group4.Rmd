@@ -86,30 +86,30 @@ You have free reign to provide additional analyses or combine analyses.
 # Read in the data directly
 airlines <- read_csv(here("Data", "airlines.csv"))
 airports <- read_csv(here("Data", "airports.csv"))
-flights  <- read_csv(here("Data", "flights.csv"))
+df       <- read_csv(here("Data", "flights.csv"))
 
 # Read in the data directly from GitHub
-# airlines = read_csv('https://raw.githubusercontent.com/mattfarrow1/7331-machine-learning-1/main/Data/airlines.csv')
-# airports = read_csv('https://raw.githubusercontent.com/mattfarrow1/7331-machine-learning-1/main/Data/airports.csv')
-# flights  = read_csv('https://media.githubusercontent.com/media/mattfarrow1/7331-machine-learning-1/main/Data/flights.csv')
+# airlines <- read_csv('https://raw.githubusercontent.com/mattfarrow1/7331-machine-learning-1/main/Data/airlines.csv')
+# airports <- read_csv('https://raw.githubusercontent.com/mattfarrow1/7331-machine-learning-1/main/Data/airports.csv')
+# df       <- read_csv('https://media.githubusercontent.com/media/mattfarrow1/7331-machine-learning-1/main/Data/flights.csv')
 
 # Clean up column names
 airlines <- airlines %>% 
   clean_names() %>% 
   rename(airline_code = iata_code)
 airports <- clean_names(airports)
-flights <- flights %>% 
+df <- df %>% 
   clean_names() %>% 
   rename(airline_code = airline)
 
 # Merge data together
-df <- left_join(flights, airlines)
+df <- left_join(df, airlines)
 
 # Subset to DFW Area
 df <- df %>% filter(origin_airport == "DFW" | origin_airport == "DAL")
 
 # Drop cancelled flights
-df <- df %>% filter(cancelled == 0)
+# df <- df %>% filter(cancelled == 0)
 ```
 
 ##### Create New Variables
@@ -195,9 +195,8 @@ df$wheels_off          <- parse_date_time(df$wheels_off, "%H%M")
 weather <- read_csv(here("Data", "dfw_weather.csv"))
 
 # Create a datetime column, rounded to the nearest 30 minutes
-weather$date_time <- round_date(readr::parse_datetime(weather$dt_iso,
-                                                      format = "%Y-%m-%d %H:%M:%S %z %Z"),
-                                "30 minutes")
+weather$date_time <- readr::parse_datetime(weather$dt_iso,
+                                                      format = "%Y-%m-%d %H:%M:%S %z %Z")
 
 # Drop unnecessary columns
 weather <- weather %>%
@@ -219,8 +218,12 @@ weather <- weather %>%
     )
   )
 
-# Round the scheduled departure datetime to the nearest 30 minutes
-df$scheduled_departure_dt <- round_date(df$scheduled_departure_dt, "30 minutes")
+# Filter weather to only 2015
+weather <- weather %>% 
+  filter(year(date_time) == 2015)
+
+# Round the scheduled departure datetime to the nearest hour
+df$scheduled_departure_dt <- round_date(df$scheduled_departure_dt, "1 hour")
 
 # Join df & weather data
 df <- left_join(df, weather, by = c("scheduled_departure_dt" = "date_time"))
@@ -244,18 +247,15 @@ tibble(variable = names(colSums(is.na(df))),
 #                        CANCELLATION_REASON = 'N',
 #                        DEPARTURE_TIME = 0))
 
-# # Change all non-null values to 1
-# df <- df %>% 
-#   mutate(DEPARTURE_TIME = replace(DEPARTURE_TIME, DEPARTURE_TIME != 0, 1))
- 
-# # Change column name to 'DEPARTED'
-# df <- df %>% rename(DEPARTED = DEPARTURE_TIME)
- 
-# # Update remaining columns using same logic
-# df <- df %>% 
-#   replace_na(list(ARRIVAL_TIME = 0)) %>%
-#   mutate(ARRIVAL_TIME = replace(ARRIVAL_TIME, ARRIVAL_TIME != 0, 1)) %>%
-#   rename(ARRIVED = ARRIVAL_TIME)
+# Convert departure_time to a binary value - departed
+df <- df %>% 
+  rename(departed = departure_time) %>% 
+  mutate(departed = if_else(!is.na(departed), 1, 0)) 
+
+# Convert arrival_time to a binary value - arrived
+df <- df %>% 
+  rename(arrived = arrival_time) %>% 
+  mutate(arrived = if_else(!is.na(arrived), 1, 0)) 
 
 # Fill missing values with 0
 df <- df %>% replace_na(list(air_system_delay = 0, 
@@ -269,7 +269,7 @@ df <- df %>% replace_na(list(air_system_delay = 0,
                              snow_3h = 0))
 
 # Drop the cancellation reason column since no flights are cancelled
-df <- df %>% select(-cancellation_reason)
+# df <- df %>% select(-cancellation_reason)
 
 # # Change remaining null values to 0 if flight was cancelleD
 # df <- df %>%
@@ -280,10 +280,10 @@ df <- df %>% select(-cancellation_reason)
 #          TAXI_IN = replace(TAXI_IN, CANCELLED == 1, 0),
 #          ARRIVAL_DELAY = replace(ARRIVAL_DELAY, CANCELLED == 1, 0))
 
-# #missing value check
-# tibble(variable = names(colSums(is.na(df))),
-#        missing = colSums(is.na(df))) %>% 
-#   gt()
+# Missing value check
+tibble(variable = names(colSums(is.na(df))),
+       missing = colSums(is.na(df))) %>%
+  gt()
 
 # Drop remaining missing values
 df <- drop_na(df)
@@ -358,5 +358,39 @@ delay_bins   <- c(-Inf, -1, 10, 30, 60, Inf)
 # # Check counts by bucket
 # df_ohe %>% 
 #   count(delay_bucket)
+```
+
+## Association Rule Mining
+
+```{r}
+# Drop year & airline
+df_arm <- df %>% select(-c(year,
+                           airline))
+
+# Select a subset for rule mining
+df_arm <- df_arm %>% 
+  select(airline_code,
+         destination_airport,
+         departed,
+         scheduled_departure_time,
+         actual_departure_time,
+         scheduled_arrival_time,
+         actual_arrival_time,
+         distance_bucket,
+         clouds_all,
+         weather_id,
+         weather_main)
+
+# Convert everything to a factor
+df_arm <- lapply(df_arm, function(x){as.factor(x)})
+
+df_rules <- apriori(df_arm, 
+                    parameter = list(support = 0.1,
+                                     confidence = 0.5))
+
+inspect(head(sort(df_rules, by = "confidence"), 5))
+
+# Convert to a transactional data set
+df_arm_transactinoal <- as(df_arm, "transactions")
 ```
 
