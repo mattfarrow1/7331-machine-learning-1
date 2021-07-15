@@ -1,0 +1,362 @@
+---
+title: "Lab 3: Association Rule Mining & Clustering"
+author: "Megan Ball, Amber Clark, Matt Farrow, Blake Freeman"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(here)
+library(janitor)
+library(arules)
+library(arulesViz)
+library(gt)
+```
+
+## **2015 Flight Delays and Cancellations**
+Data Source: [Kaggle](https://www.kaggle.com/usdot/flight-delays?select=flights.csv)
+
+Our data set consists of over 5 million rows of flight information in the domestic United States for the year of 2015. In order to optimize our modeling time, we have narrowed the scope of our classification tasks to the Dallas area only (Dallas Love Field and DFW airports).
+
+## Rubric
+
+### [Business Understanding](#Business-Understanding) (10 points total)
+
+- [10 points] Describe the purpose of the data set you selected (i.e., why was this data collected in the first place?). How will you measure the effectiveness of a good algorithm? Why does your chosen validation method make sense for this specific dataset and the stakeholders needs?
+
+### [Data Understanding](#Data-Understanding) (20 points total)
+
+#### [Data Understanding 1](#Data-Understanding-1)
+
+- [10 points] Describe the meaning and type of data (scale, values, etc.) for each attribute in the data file. Verify data quality: Are there missing values? Duplicate data? Outliers? Are those mistakes? How do you deal with these problems?
+
+#### [Data Understanding 2](#Data-Understanding-2)
+
+- [10 points] Visualize the any important attributes appropriately. Important: Provide an interpretation for any charts or graphs.
+
+### [Modeling and Evaluation](#Modeling-and-Evaluation) (50 points total)
+
+Different tasks will require different evaluation methods. Be as thorough as possible when analyzing the data you have chosen and use visualizations of the results to explain the performance and expected outcomes whenever possible. Guide the reader through your analysis with plenty of discussion of the results.
+
+#### Option A: Cluster Analysis
+
+- Perform cluster analysis using several clustering methods
+- How did you determine a suitable number of clusters for each method?
+- Use internal and/or external validation measures to describe and compare the clusterings and the clusters (some visual methods would be good).
+- Describe your results. What findings are the most interesting and why?
+
+#### [Modeling and Evaluation 1](#Modeling-and-Evaluation-1)
+
+- Train and adjust parameters
+
+#### [Modeling and Evaluation 2](#Modeling-and-Evaluation-2)
+
+- Evaluate and compare
+
+#### [Modeling and Evaluation 3](#Modeling-and-Evaluation-3)
+
+- Visualize results
+
+#### [Modeling and Evaluation 4](#Modeling-and-Evaluation-4)
+
+- Summarise the ramifications
+
+### [Deployment](#Deployment) (10 points total)
+
+Be critical of your performance and tell the reader how you current model might be usable by other parties. Did you achieve your goals? If not, can you reign in the utility of your modeling?
+
+- How useful is your model for interested parties (i.e., the companies or organizations that might want to use it)?
+- How would your deploy your model for interested parties?
+- What other data should be collected?
+- How often would the model need to be updated, etc.?
+
+### [Exceptional Work](#Exceptional-Work) (10 points total)
+
+You have free reign to provide additional analyses or combine analyses.
+
+## Business Understanding
+
+## Data Understanding 1
+
+> Describe the meaning and type of data (scale, values, etc.) for each attribute in the data file. Verify data quality: Are there missing values? Duplicate data? Outliers? Are those mistakes? How do you deal with these problems?
+
+```{r}
+# Read in the data directly
+airlines <- read_csv(here("Data", "airlines.csv"))
+airports <- read_csv(here("Data", "airports.csv"))
+flights  <- read_csv(here("Data", "flights.csv"))
+
+# Read in the data directly from GitHub
+# airlines = read_csv('https://raw.githubusercontent.com/mattfarrow1/7331-machine-learning-1/main/Data/airlines.csv')
+# airports = read_csv('https://raw.githubusercontent.com/mattfarrow1/7331-machine-learning-1/main/Data/airports.csv')
+# flights  = read_csv('https://media.githubusercontent.com/media/mattfarrow1/7331-machine-learning-1/main/Data/flights.csv')
+
+# Clean up column names
+airlines <- airlines %>% 
+  clean_names() %>% 
+  rename(airline_code = iata_code)
+airports <- clean_names(airports)
+flights <- flights %>% 
+  clean_names() %>% 
+  rename(airline_code = airline)
+
+# Merge data together
+df <- left_join(flights, airlines)
+
+# Subset to DFW Area
+df <- df %>% filter(origin_airport == "DFW" | origin_airport == "DAL")
+
+# Drop cancelled flights
+df <- df %>% filter(cancelled == 0)
+```
+
+##### Create New Variables
+
+```{r}
+# Convert times into buckets for morning, afternoon, and evening as most models cannot handle timestamps.
+time_labels = c('overnight', 'morning', 'afternoon', 'evening')
+time_bins   = c(0, 559, 1159, 1759, 2359)
+
+df$scheduled_departure_time <- cut(as.numeric(df$scheduled_departure),
+                                   breaks = time_bins,
+                                   labels = time_labels)
+
+df$actual_departure_time    <- cut(as.numeric(df$departure_time),
+                                   breaks = time_bins,
+                                   labels = time_labels)
+
+df$scheduled_arrival_time   <- cut(as.numeric(df$scheduled_arrival),
+                                   breaks = time_bins,
+                                   labels = time_labels)
+
+df$actual_arrival_time <-   cut(as.numeric(df$arrival_time),
+                                   breaks = time_bins,
+                                   labels = time_labels)
+
+# Bucket Flight Distance
+distance_labels <- c('Short', 'Medium', 'Long')
+distance_bins   <- c(1, 100, 1000, Inf)
+
+df$distance_bucket <- cut(df$distance,
+                          breaks = distance_bins,
+                          labels = distance_labels,
+                          include.lowest = TRUE)
+
+# Create a new column where the arrival_delay > 0 means it's delayed(=1) and if <= 0 it's not delayed(=0)
+df <- df %>% 
+  mutate(delayed = if_else(arrival_delay > 0, 1, 0))
+
+# Look at our data with the buckets
+head(df)
+```
+
+##### Process Dates & Times
+
+```{r}
+# Combine the Year, Month & Day columns into a single flight date
+df$flight_date <- as.Date(with(df, paste(df$year, df$month, df$day, sep="-"), "%Y-%m-%d"))
+
+# Define the scheduled departure and arrival datetimes
+df$scheduled_departure_dt <-
+  parse_date_time(paste(
+    df$year,
+    df$month,
+    df$day,
+    df$scheduled_departure,
+    sep = "-"
+  ),
+  "%Y-%m-%d-%H%M")
+
+df$scheduled_arrival_dt <-
+  parse_date_time(paste(
+    df$year,
+    df$month,
+    df$day,
+    df$scheduled_arrival,
+    sep = "-"
+  ),
+  "%Y-%m-%d-%H%M")
+
+# Define the time columns
+df$scheduled_departure <- parse_date_time(df$scheduled_departure, "%H%M")
+df$departure_time      <- parse_date_time(df$departure_time, "%H%M")
+df$scheduled_arrival   <- parse_date_time(df$scheduled_arrival, "%H%M")
+df$arrival_time        <- parse_date_time(df$arrival_time, "%H%M")
+df$wheels_on           <- parse_date_time(df$wheels_on, "%H%M")
+df$wheels_off          <- parse_date_time(df$wheels_off, "%H%M")
+```
+
+##### Append Dallas-Area Weather
+
+```{r}
+# Read in the data
+weather <- read_csv(here("Data", "dfw_weather.csv"))
+
+# Create a datetime column, rounded to the nearest 30 minutes
+weather$date_time <- round_date(readr::parse_datetime(weather$dt_iso,
+                                                      format = "%Y-%m-%d %H:%M:%S %z %Z"),
+                                "30 minutes")
+
+# Drop unnecessary columns
+weather <- weather %>%
+  select(
+    -c(
+      dt,
+      dt_iso,
+      timezone,
+      city_name,
+      lat,
+      lon,
+      feels_like,
+      temp_min,
+      temp_max,
+      sea_level,
+      grnd_level,
+      weather_icon,
+      weather_description
+    )
+  )
+
+# Round the scheduled departure datetime to the nearest 30 minutes
+df$scheduled_departure_dt <- round_date(df$scheduled_departure_dt, "30 minutes")
+
+# Join df & weather data
+df <- left_join(df, weather, by = c("scheduled_departure_dt" = "date_time"))
+```
+
+##### Missing Values
+
+```{r}
+# Remove non-critical columns WHEELS_ON and WHEELS_OFF
+df <- df %>% select(-c(wheels_on,
+                       wheels_off))
+
+# Missing value check
+tibble(variable = names(colSums(is.na(df))),
+       missing = colSums(is.na(df))) %>%
+  gt()
+
+# # Fill missing values with 'N' for 'N/A' and missing departure time to 0
+# df <- df %>% replace_na(list(ACTUAL_DEPARTURE_TIME = 'N', 
+#                        ACTUAL_ARRIVAL_TIME= 'N',
+#                        CANCELLATION_REASON = 'N',
+#                        DEPARTURE_TIME = 0))
+
+# # Change all non-null values to 1
+# df <- df %>% 
+#   mutate(DEPARTURE_TIME = replace(DEPARTURE_TIME, DEPARTURE_TIME != 0, 1))
+ 
+# # Change column name to 'DEPARTED'
+# df <- df %>% rename(DEPARTED = DEPARTURE_TIME)
+ 
+# # Update remaining columns using same logic
+# df <- df %>% 
+#   replace_na(list(ARRIVAL_TIME = 0)) %>%
+#   mutate(ARRIVAL_TIME = replace(ARRIVAL_TIME, ARRIVAL_TIME != 0, 1)) %>%
+#   rename(ARRIVED = ARRIVAL_TIME)
+
+# Fill missing values with 0
+df <- df %>% replace_na(list(air_system_delay = 0, 
+                             security_delay = 0,
+                             airline_delay = 0,
+                             late_aircraft_delay = 0,
+                             weather_delay = 0,
+                             rain_1h = 0,
+                             rain_3h = 0,
+                             snow_1h = 0,
+                             snow_3h = 0))
+
+# Drop the cancellation reason column since no flights are cancelled
+df <- df %>% select(-cancellation_reason)
+
+# # Change remaining null values to 0 if flight was cancelleD
+# df <- df %>%
+#   mutate(DEPARTURE_DELAY = replace(DEPARTURE_DELAY, CANCELLED == 1, 0),
+#          TAXI_OUT = replace(TAXI_OUT, CANCELLED == 1, 0),
+#          ELAPSED_TIME = replace(ELAPSED_TIME, CANCELLED == 1, 0),
+#          AIR_TIME = replace(AIR_TIME, CANCELLED == 1, 0),
+#          TAXI_IN = replace(TAXI_IN, CANCELLED == 1, 0),
+#          ARRIVAL_DELAY = replace(ARRIVAL_DELAY, CANCELLED == 1, 0))
+
+# #missing value check
+# tibble(variable = names(colSums(is.na(df))),
+#        missing = colSums(is.na(df))) %>% 
+#   gt()
+
+# Drop remaining missing values
+df <- drop_na(df)
+
+# Delete date columns ahead of modeling
+df <- df %>% select(-c(flight_date,
+                       scheduled_departure_dt,
+                       scheduled_arrival_dt))
+```
+
+##### Feature Removals
+
+Here we remove redundant columns to further reduce the data size. Columns that are being removed:
+
+- `year`: All rows are from 2015, no need to include this.
+- `airline`: We have `airline_code` which is the same information
+
+```{r}
+df <- df %>% select(-c(year,
+                       airline))
+```
+
+
+##### Encoding
+
+```{r}
+# # Encode Destination Airport & Tail Number
+# from sklearn.preprocessing import LabelEncoder
+# labelencoder = LabelEncoder()
+# df['DESTINATION_AIRPORT_encode'] = labelencoder.fit_transform(df['DESTINATION_AIRPORT'])
+# df.dropna(subset = ["DESTINATION_AIRPORT_encode"], inplace=True)
+# df['TAIL_NUMBER_encode'] = labelencoder.fit_transform(df['TAIL_NUMBER'])
+# 
+# # Drop original columns
+# col_to_drop2 = ['TAIL_NUMBER','DESTINATION_AIRPORT']
+# df = df.drop(columns = col_to_drop2)
+# 
+# # One-hot encode categorical columns
+# categorical_columns = ['AIRLINE_CODE', 'CANCELLATION_REASON', 'SCHED_DEPARTURE_TIME', 
+#                        'ACTUAL_DEPARTURE_TIME','SCHED_ARRIVAL_TIME', 'ACTUAL_ARRIVAL_TIME',
+#                        'DISTANCE_BUCKET', 'weather_main', 'ORIGIN_AIRPORT']
+# 
+# for column in categorical_columns:
+#   tempdf = pd.get_dummies(df[categorical_columns], prefix = categorical_columns, drop_first = True)
+#   df_OHE = pd.merge(
+#       left = df,
+#       right = tempdf,
+#       left_index=True,
+#       right_index=True
+#   )
+#   df_OHE = df_OHE.drop(columns = categorical_columns)
+```
+
+##### Flight Delay Response Variable
+
+Add response variable bucket for delay time for departure
+
+- 0 is Early (negative time)
+- 1 is On_Time or between 0 and 10 minutes late
+- 2 is Late (between 11 and 30 min late)
+- 3 is very late (between 31 and 60 min late)
+- 4 is extremely late (over 61 min late)
+
+```{r}
+delay_labels <- c('0', '1', '2', '3', '4')
+delay_bins   <- c(-Inf, -1, 10, 30, 60, Inf)
+
+# df_ohe$delay_bucket <- cut(df_ohe$departure_delay,
+#                            breaks = delay_bins,
+#                            labels = delay_labels)
+# 
+# # Check counts by bucket
+# df_ohe %>% 
+#   count(delay_bucket)
+```
+
