@@ -223,6 +223,15 @@ df <- left_join(df, day_of_week, by = c("day_of_week" = "number"))
 # Convert month to a factor
 df <- df %>% mutate(month = month(df$month, label = TRUE))
 
+# Convert numeric variables to range factors
+df <- df %>% 
+  mutate(temp_range = cut(df$temp, 10),  # temperature
+         pressure_range = cut(df$pressure, 10),  # barometric pressure
+         wind_speed_range = cut(df$wind_speed, 10),  # wind speed
+         rain_1h_range = cut(df$rain_1h, 10),  # rain_1h
+         rain_3h_range = cut(df$rain_3h, 10)  # rain_3h
+  )
+
 
 # Select a subset for rule mining
 df_arm <- df %>% 
@@ -232,6 +241,11 @@ df_arm <- df %>%
          month,
          weekday,
          distance_bucket,
+         temp_range,
+         pressure_range,
+         wind_speed_range,
+         rain_1h_range,
+         rain_3h_range,
          weather_main)
 
 # Convert everything to a factor
@@ -241,9 +255,21 @@ df_arm <- df_arm %>%
 # Convert to a transactional data set
 df_arm_transactional <- as(df_arm, "transactions")
 
+# Create rules
 df_rules <- apriori(df_arm_transactional, 
                     parameter = list(support = 0.01,
                                      confidence = 0.8))
 
+# Inspect rules
+inspectDT(df_rules)
+
+# Plot rules
+plot(df_rules, engine = "html")
+plot(head(df_rules, n = 50, by = "lift"), method = "graph")
+
+# Rule Explorer
+ruleExplorer(df_rules)
+
+# Create sorted list of rules
 df_rules_sorted <- sort(df_rules, by = "lift")
 plot(df_rules_sorted, method = "grouped")
