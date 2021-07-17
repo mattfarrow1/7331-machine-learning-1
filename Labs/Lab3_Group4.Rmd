@@ -373,9 +373,6 @@ df_arm <- df_arm %>%
          destination_airport,
          departed,
          scheduled_departure_time,
-         actual_departure_time,
-         scheduled_arrival_time,
-         actual_arrival_time,
          distance_bucket,
          clouds_all,
          weather_id,
@@ -388,9 +385,13 @@ df_rules <- apriori(df_arm,
                     parameter = list(support = 0.1,
                                      confidence = 0.5))
 
-inspect(head(sort(df_rules, by = "confidence"), 5))
+inspect(head(sort(df_rules, by = "confidence"), 3))
 
 # Convert to a transactional data set
 df_arm_transactinoal <- as(df_arm, "transactions")
+
+df_rules <- apriori(df_arm_transactinoal, 
+                    parameter = list(support = 0.1,
+                                     confidence = 0.5))
 ```
 
