@@ -273,3 +273,59 @@ ruleExplorer(df_rules)
 # Create sorted list of rules
 df_rules_sorted <- sort(df_rules, by = "lift")
 plot(df_rules_sorted, method = "grouped")
+inspect(head(df_rules_sorted, 3))
+
+
+
+# arules: Cancelled on LHS ------------------------------------------------
+
+
+# Select a subset for rule mining
+df_arm <- df %>% 
+  select(airline_code,
+         tail_number,
+         scheduled_departure_time,
+         month,
+         weekday,
+         distance_bucket,
+         temp_range,
+         pressure_range,
+         wind_speed_range,
+         rain_1h_range,
+         rain_3h_range,
+         weather_main,
+         cancelled)
+
+df_arm <- df_arm %>% 
+  mutate(cancelled = if_else(df_arm$cancelled == 0, "Not Cancelled", "Cancelled"))
+
+# Convert everything to a factor
+df_arm <- df_arm %>% 
+  mutate_if(is.character,as.factor)
+
+# Convert to a transactional data set
+df_arm_transactional <- as(df_arm, "transactions")
+
+cancelled <- grep("cancelled", itemLabels(df_arm_transactional), value = TRUE)
+cancelled
+
+# Create rules
+df_rules <- apriori(df_arm_transactional, 
+                    appearance = list(lhs = cancelled),
+                    parameter = list(support = 0.01,
+                                     confidence = 0.8))
+
+# Inspect rules
+inspectDT(df_rules)
+
+# Plot rules
+plot(df_rules, engine = "html")
+plot(head(df_rules, n = 50, by = "lift"), method = "graph")
+
+# Rule Explorer
+ruleExplorer(df_rules)
+
+# Create sorted list of rules
+df_rules_sorted <- sort(df_rules, by = "lift")
+plot(df_rules_sorted, method = "grouped")
+inspect(head(df_rules_sorted, 3))
