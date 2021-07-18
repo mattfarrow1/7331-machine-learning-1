@@ -47,40 +47,6 @@ df <- df %>% filter(origin_airport == "DFW" | origin_airport == "DAL")
 # Drop cancelled flights
 # df <- df %>% filter(cancelled == 0)
 
-# Create New Variables ----------------------------------------------------
-
-# Convert times into buckets for morning, afternoon, and evening as most models cannot handle timestamps.
-#time_labels = c('overnight', 'morning', 'afternoon', 'evening')
-#time_bins   = c(0, 559, 1159, 1759, 2359)
-
-#df$scheduled_departure_time <- cut(as.numeric(df$scheduled_departure),
-#                                   breaks = time_bins,
-#                                   labels = time_labels)
-
-#df$actual_departure_time    <- cut(as.numeric(df$departure_time),
-#                                   breaks = time_bins,
-#                                   labels = time_labels)
-
-#df$scheduled_arrival_time   <- cut(as.numeric(df$scheduled_arrival),
-#                                   breaks = time_bins,
-#                                   labels = time_labels)
-
-#df$actual_arrival_time <-   cut(as.numeric(df$arrival_time),
-#                                breaks = time_bins,
-#                                labels = time_labels)
-
-# Bucket Flight Distance
-#distance_labels <- c('Short', 'Medium', 'Long')
-#distance_bins   <- c(1, 100, 1000, Inf)
-
-#df$distance_bucket <- cut(df$distance,
-#                         breaks = distance_bins,
-#                         labels = distance_labels,
-#                          include.lowest = TRUE)
-
-# Look at our data with the buckets
-#head(df)
-
 # Process Dates & Times ---------------------------------------------------
 
 # Combine the Year, Month & Day columns into a single flight date
@@ -106,14 +72,6 @@ df$scheduled_arrival_dt <-
     sep = "-"
   ),
   "%Y-%m-%d-%H%M")
-
-# Define the time columns
-#df$scheduled_departure <- parse_date_time(df$scheduled_departure, "%H%M")
-#df$departure_time      <- parse_date_time(df$departure_time, "%H%M")
-#df$scheduled_arrival   <- parse_date_time(df$scheduled_arrival, "%H%M")
-#df$arrival_time        <- parse_date_time(df$arrival_time, "%H%M")
-#df$wheels_on           <- parse_date_time(df$wheels_on, "%H%M")
-#df$wheels_off          <- parse_date_time(df$wheels_off, "%H%M")
 
 # Append Dallas-Area Weather ----------------------------------------------
 
@@ -166,17 +124,9 @@ tibble(variable = names(colSums(is.na(df))),
        missing = colSums(is.na(df))) %>%
   gt()
 
-# # Fill missing values with 'N' for 'N/A' and missing departure time to 0
-# df <- df %>% replace_na(list(ACTUAL_DEPARTURE_TIME = 'N', 
-#                        ACTUAL_ARRIVAL_TIME= 'N',
-#                        CANCELLATION_REASON = 'N',
-#                        DEPARTURE_TIME = 0))
-
 #convert times to numeric for clustering later on
 df$scheduled_departure <- as.numeric(df$scheduled_departure)
 df$scheduled_arrival <- as.numeric(df$scheduled_arrival)
-df$departure_time <- as.numeric(df$departure_time)
-df$arrival_time <- as.numeric(df$arrival_time)
 
 
 df <- df %>% replace_na(list(cancellation_reason = 'N',
@@ -206,7 +156,7 @@ df <- df %>% replace_na(list(air_system_delay = 0,
 # Drop the cancellation reason column since no flights are cancelled
 # df <- df %>% select(-cancellation_reason)
 
-# # Change remaining null values to 0 if flight was cancelleD
+# # Change remaining null values to 0 if flight was cancelled
 df <- df %>%
    mutate(departure_delay = replace(departure_delay, cancelled == 1, 0),
           taxi_out = replace(taxi_out, cancelled == 1, 0),
@@ -217,7 +167,8 @@ df <- df %>%
 
 # Create a new column where the arrival_delay > 0 means it's delayed(=1) and if <= 0 it's not delayed(=0)
 df <- df %>% 
-  mutate(delayed = if_else(arrival_delay > 0, 1, 0))
+  mutate(delayed_on_arrival = if_else(arrival_delay > 0, "Yes", "No")) %>%
+  mutate(delayed_on_depart = if_else(departure_delay > 0, "Yes", "No"))
 
 
 # Missing value check
@@ -236,16 +187,16 @@ df <- df %>% select(-c(flight_date,
 #remove flights to save RAM
 rm(flights)
 
-# Clustering --------------------------------------------------------------
+# Clustering & Creating New Variables ----------------------------------------------------
 
-### scheduled_departure
+### SCHEDULED_DEPARTURE ###
 
 #visualize the distribution before we cluster
 ggplot(df, aes(x = scheduled_departure)) + 
   geom_histogram() +
   ggtitle("Distribution of Scheduled Departure Times (24H time)")
 
-#find optimal numbers of clusters for k-meansv- not enough memory to use
+#find optimal numbers of clusters for k-means- not enough memory to use
 #fviz_nbclust(as.matrix(df$scheduled_departure), kmeans, method = "wss") +
 #  geom_vline(linetype = 2)
 
@@ -258,12 +209,26 @@ print(kmeans_sched_depart)
 df$sched_depart_group <- kmeans_sched_depart$cluster
 df$sched_depart_group <- as.factor(df$sched_depart_group)
 
-#visualize cluster
+#visualize cluster to see if 5 was appropriate
 ggplot(df, aes(x = scheduled_departure)) + 
   geom_histogram(aes(fill = sched_depart_group)) +
   ggtitle("Distribution of Scheduled Departure Times (24H time)")
 
-### scheduled_arrival
+#check min and max
+summary(df$scheduled_departure)
+
+#perform grouping based on estimating cluster values
+df$scheduled_departure_group <- cut(as.numeric(df$scheduled_departure),
+                                    breaks = c(0, 930, 1300, 1630, 1950, 2359),
+                                    labels = c("early morning", "morning/early afternoon", "afternoon", "evening",
+                                               "overnight"))
+
+ggplot(df, aes(x = scheduled_departure)) + 
+  geom_histogram(aes(fill = scheduled_departure_group)) +
+  ggtitle("Distribution of Scheduled Departure Times (24H time)")
+
+
+### SCHEDULED_ARRIVAL ###
 
 #visualize the distribution before we cluster
 ggplot(df, aes(x = scheduled_arrival)) + 
@@ -283,15 +248,25 @@ ggplot(df, aes(x = scheduled_arrival)) +
   geom_histogram(aes(fill = sched_arrive_group)) +
   ggtitle("Distribution of Scheduled Arrival Times (24H time)")
 
-### distance
+#check min and max
+summary(df$scheduled_arrival)
+
+#perform grouping based on estimating cluster values
+df$scheduled_arrival_group <- cut(as.numeric(df$scheduled_arrival),
+                                    breaks = c(0, 500, 1200, 1600, 2000, 2359),
+                                    labels = c("early morning", "morning/early afternoon", "afternoon", "evening",
+                                               "overnight"))
+
+ggplot(df, aes(x = scheduled_arrival)) + 
+  geom_histogram(aes(fill = scheduled_arrival_group)) +
+  ggtitle("Distribution of Scheduled Arrival Times (24H time)")
+
+### DISTANCE ###
 
 #visualize the distribution before we cluster
 ggplot(df, aes(x = distance)) + 
   geom_histogram() +
   ggtitle("Distribution of Distance")
-
-#we have quite a few outliers here, but this should not be an issue ultimately in association rule mining, assuming
-#that kmeans clustering groups them together
 
 #run kmeans with k=4, meaning we will create 4 distinct groups
 kmeans_dist <- kmeans(as.matrix(df$distance), 4, nstart = 15)
@@ -304,31 +279,48 @@ df$distance_bucket <- as.factor(df$distance_bucket)
 #visualize cluster
 ggplot(df, aes(x = distance)) + 
   geom_histogram(aes(fill = distance_bucket)) +
-  ggtitle("Distribution of Distance")
+  ggtitle("Distribution of Flight Distance")
 
-ggplot(df, aes(x = rain_1h)) + 
-  geom_histogram()
+#check min and max
+summary(df$distance)
 
-kmeans_rain_1h <- kmeans(as.matrix(df$rain_1h), 6, nstart = 15)
-print(kmeans_rain_1h)
+#perform grouping based on estimating cluster values
+df$distance_group <- cut(as.numeric(df$distance),
+                                  breaks = c(0, 575, 990, 2500, 4000),
+                                  labels = c("< 575 miles", "Btwn 575 and 990 miles", "Btwn 990 and 2500 miles", 
+                                             "> 4000 miles"))
 
-#add to df
-df$rain_1h_bucket <- kmeans_rain_1h$cluster
-df$rain_1h_bucket <- as.factor(df$rain_1h_bucket)
+ggplot(df, aes(x = distance)) + 
+  geom_histogram(aes(fill = distance_group)) +
+  ggtitle("Distribution of Flight Distance")
 
-ggplot(df, aes(x = rain_1h)) + 
-  geom_histogram(aes(fill = rain_1h_bucket)) +
-  scale_y_log10()
+#remove now unused variables to save memory
+df <- df %>%
+  select(-c('sched_depart_group', 'sched_arrive_group', 'distance_bucket'))
 
-ggplot(df, aes(x = rain_1h)) + 
-  geom_histogram(aes(fill = rain_1h_range)) +
-  scale_y_log10() 
+#check data
+str(df)
 
-#assign human readable versions of cluster
+# Prepare for ARM ---------------------------------------------------------
 
+#update for human readability
+df <- df %>% 
+  mutate(delayed_on_arrival = if_else(arrival_delay > 0, "Yes", "No")) %>%
+  mutate(delayed_on_depart = if_else(departure_delay > 0, "Yes", "No"))
 
+# Create binary variables for association rules
+df <- df %>% 
+  mutate(air_system_delay = if_else(air_system_delay > 0, "Yes", "No")) %>%
+  mutate(security_delay = if_else(security_delay > 0, "Yes", "No")) %>%
+  mutate(airline_delay = if_else(airline_delay > 0, "Yes", "No")) %>%
+  mutate(late_aircraft_delay = if_else(late_aircraft_delay > 0,"Yes", "No")) %>%
+  mutate(weather_delay = if_else(weather_delay > 0, "Yes", "No"))
 
-# Association Rule Mining -------------------------------------------------
+df <- df %>% 
+  mutate(diverted = if_else(diverted == 1, "Yes", "No")) %>%
+  mutate(cancelled = if_else(cancelled == 1, "Yes", "No")) %>%
+  mutate(departed = if_else(departed == 1, "Yes", "No")) %>%
+  mutate(arrived = if_else(arrived == 1, "Yes", "No"))
 
 # Convert day of week to factor
 day_of_week <- tibble(number = c(1, 2, 3, 4, 5, 6, 7),
@@ -347,25 +339,29 @@ df <- df %>%
          rain_3h_range = cut(df$rain_3h, 10)  # rain_3h
   )
 
+# Convert everything to a factor
+df <- df %>% 
+  mutate_if(is.character,as.factor)
+
+#check data
+str(df)
+
+# Association Rule Mining -------------------------------------------------
 
 # Select a subset for rule mining
 df_arm <- df %>% 
   select(airline_code,
          tail_number,
-         scheduled_departure_time,
+         scheduled_departure_group,
          month,
          weekday,
-         distance_bucket,
+         distance_group,
          temp_range,
          pressure_range,
          wind_speed_range,
          rain_1h_range,
          rain_3h_range,
          weather_main)
-
-# Convert everything to a factor
-df_arm <- df_arm %>% 
-  mutate_if(is.character,as.factor)
 
 # Convert to a transactional data set
 df_arm_transactional <- as(df_arm, "transactions")
@@ -377,6 +373,8 @@ df_rules <- apriori(df_arm_transactional,
 
 # Inspect rules
 inspectDT(df_rules)
+
+inspect(head(df_rules, n = 10, by = "lift"))
 
 # Plot rules
 plot(df_rules, engine = "html")
@@ -392,31 +390,34 @@ inspect(head(df_rules_sorted, 3))
 
 
 
-# arules: Cancelled on LHS ------------------------------------------------
+# arules: Cancelled on RHS ------------------------------------------------
 
 
 # Select a subset for rule mining
 df_arm <- df %>% 
-  select(airline_code,
+  select(month,
+         airline_code,
          tail_number,
-         scheduled_departure_time,
-         month,
+         origin_airport,
+         destination_airport,
          weekday,
-         distance_bucket,
+         air_system_delay,
+         security_delay,
+         airline_delay,
+         late_aircraft_delay,
+         weather_delay,
+         weather_main,
+         delayed_on_arrival,
+         delayed_on_depart,
+         scheduled_departure_group,
+         scheduled_arrival_group,
+         distance_group,
          temp_range,
          pressure_range,
          wind_speed_range,
          rain_1h_range,
          rain_3h_range,
-         weather_main,
          cancelled)
-
-df_arm <- df_arm %>% 
-  mutate(cancelled = if_else(df_arm$cancelled == 0, "Not Cancelled", "Cancelled"))
-
-# Convert everything to a factor
-df_arm <- df_arm %>% 
-  mutate_if(is.character,as.factor)
 
 # Convert to a transactional data set
 df_arm_transactional <- as(df_arm, "transactions")
@@ -426,12 +427,131 @@ cancelled
 
 # Create rules
 df_rules <- apriori(df_arm_transactional, 
-                    appearance = list(lhs = cancelled),
+                    appearance = list(rhs = cancelled),
                     parameter = list(support = 0.01,
-                                     confidence = 0.8))
+                                     confidence = 0.8,
+                                     minlen = 3))
 
 # Inspect rules
 inspectDT(df_rules)
+
+inspect(head(df_rules, n = 10, by = "lift"))
+
+# Plot rules
+plot(df_rules, engine = "html")
+plot(head(df_rules, n = 50, by = "lift"), method = "graph")
+
+# Rule Explorer
+ruleExplorer(df_rules)
+
+# Create sorted list of rules
+df_rules_sorted <- sort(df_rules, by = "lift")
+plot(df_rules_sorted, method = "grouped")
+inspect(head(df_rules_sorted, 3))
+
+# arules: Delayed_on_arrival on RHS ------------------------------------------------
+
+
+# Select a subset for rule mining
+df_arm <- df %>% 
+  select(month,
+         airline_code,
+         tail_number,
+         origin_airport,
+         destination_airport,
+         weekday,
+         air_system_delay,
+         security_delay,
+         airline_delay,
+         late_aircraft_delay,
+         weather_delay,
+         weather_main,
+         delayed_on_depart,
+         scheduled_departure_group,
+         scheduled_arrival_group,
+         distance_group,
+         temp_range,
+         pressure_range,
+         wind_speed_range,
+         rain_1h_range,
+         rain_3h_range,
+         delayed_on_arrival)
+
+# Convert to a transactional data set
+df_arm_transactional <- as(df_arm, "transactions")
+
+delayed_on_arrival <- grep("delayed_on_arrival", itemLabels(df_arm_transactional), value = TRUE)
+delayed_on_arrival
+
+# Create rules
+df_rules <- apriori(df_arm_transactional, 
+                    appearance = list(rhs = delayed_on_arrival),
+                    parameter = list(support = 0.01,
+                                     confidence = 0.8,
+                                     minlen = 3))
+
+# Inspect rules
+inspectDT(df_rules)
+
+inspect(head(df_rules, n = 10, by = "lift"))
+
+# Plot rules
+plot(df_rules, engine = "html")
+plot(head(df_rules, n = 50, by = "lift"), method = "graph")
+
+# Rule Explorer
+ruleExplorer(df_rules)
+
+# Create sorted list of rules
+df_rules_sorted <- sort(df_rules, by = "lift")
+plot(df_rules_sorted, method = "grouped")
+inspect(head(df_rules_sorted, 3))
+
+# arules: Delayed_on_departure on RHS ------------------------------------------------
+
+
+# Select a subset for rule mining
+df_arm <- df %>% 
+  select(month,
+         airline_code,
+         tail_number,
+         origin_airport,
+         destination_airport,
+         weekday,
+         air_system_delay,
+         security_delay,
+         airline_delay,
+         late_aircraft_delay,
+         weather_delay,
+         weather_main,
+         delayed_on_arrival,
+         scheduled_departure_group,
+         scheduled_arrival_group,
+         distance_group,
+         temp_range,
+         pressure_range,
+         wind_speed_range,
+         rain_1h_range,
+         rain_3h_range,
+         delayed_on_depart)
+
+# Convert to a transactional data set
+df_arm_transactional <- as(df_arm, "transactions")
+
+delayed_on_depart <- grep("delayed_on_depart", itemLabels(df_arm_transactional), value = TRUE)
+delayed_on_depart
+
+# Create rules
+df_rules <- apriori(df_arm_transactional, 
+                    appearance = list(rhs = delayed_on_depart),
+                    parameter = list(support = 0.01,
+                                     confidence = 0.8,
+                                     minlen = 3))
+
+# Inspect rules
+inspectDT(df_rules)
+
+inspect(head(df_rules, n = 10, by = "lift"))
 
 # Plot rules
 plot(df_rules, engine = "html")
